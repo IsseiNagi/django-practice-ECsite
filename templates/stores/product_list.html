@@ -27,7 +27,7 @@
             {% for product in object_list %}
             <tr>
                 <td>{{ product.product_type.name }}</td>
-                <td>{{ product.name }}</td>
+                <td><a href="{% url 'stores:product_detail' pk=product.id %}">{{ product.name }}</a></td>
                 <td>{{ product.price }}円</td>
                 <td>{{ product.stock }}個</td>
                 <td>{{ product.manufacture.name }}</td>
