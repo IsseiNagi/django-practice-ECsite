@@ -12,6 +12,7 @@
         <a class="navbar-brand" href="{% url 'accounts:home' %}">ホーム</a>
         {% if user.is_authenticated %}
         <a class="navbar-brand" href="{% url 'accounts:user_logout' %}">ログアウト</a>
+        <a class="navbar-brand" href="{% url 'stores:product_list' %}">商品一覧</a>
         {% else %}
         <a class="navbar-brand" href="{% url 'accounts:user_login' %}">ログイン</a>
         <a class="navbar-brand" href="{% url 'accounts:regist' %}">ユーザー登録</a>
