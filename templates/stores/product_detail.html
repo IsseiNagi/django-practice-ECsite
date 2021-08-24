@@ -5,24 +5,75 @@
     <div style="float: left; padding: 0 20px 20px 0">
         {% for picture in object.productpictures_set.all %}
             {% if forloop.first %}
-            <div>
-                <img
-                    width="200px"
-                    height="200px"
-                    src="{{ picture.picute.url }}"
-                >
-            </div>
-            {% else %}
-                <img
-                    width="50px"
-                    height="50px"
-                    src="{{ picture.picute.url }}"
-                >
-            {% endif %}
+        <div>
+            <img width="200px" height="200px" src="{{ picture.picute.url }}">
+        </div>
+        {% else %}
+        <img width="50px" height="50px" src="{{ picture.picute.url }}">
+        {% endif %}
         {% endfor %}
     </div>
     <p>商品名： {{object.name}}</p>
     <p>値段： {{object.price}}円</p>
     <p>残り： {{object.stock}}個</p>
-</div>
-{% endblock content %}
+    <!-- カートに追加するための数値と実行ボタン -->
+    {% if object.stock %}
+        <!-- contextのis_addedが存在していたら（カートに商品が追加されていたら）、ボタン表示を変更する処理 -->
+        {% if is_added %}
+        <p class="btn btn-danger">カートに追加済みです</p>
+        {% else %}
+        <input
+            type="number"
+            id="quantity"
+            name="quantity"
+            min="1"
+            max="{{ object.stock }}"
+        >
+        <br>
+        <button id="add_product" type="button" class="btn btn-primary">カートに追加</button>
+        {% endif %}
+    {% endif %}
+    <!--注）-->
+    <input type="hidden" name="csrfToken" value="{{ csrf_token }}">
+    <script>
+    // jQueryライブラリの#add_productで処理 base.htmlでjQueryの読み込みを追加した
+    $('#add_product').click(function(){
+        var quantity = $("#quantity").val();  //入力された数値を取得する
+        var token = $('input[name="csrfToken"]').attr('value')  //inputのcsrfTokenからattrでvalueを取得する 注）
+        // ajax処理の前に、ajaxにtokenをセットする 注）
+        $.ajaxSetup({
+            beforeSend: function(xhr){
+                xhr.setRequestHeader('X-CSRFToken', token)
+            }
+        })
+        // ajax処理
+        $.ajax({
+            url: "{% url 'stores:add_product' %}",
+
+            /* 注）
+            ajaxでもDjango上、POSTはcsrf_tokenで送らなくてはいけない。
+            やり方はいろいろあるが、今回は、inputのhiddenでcsrf_tokenを送り、
+            ajax処理を行う前に受け取ってajaxにセットするやり方で実装する */
+            type: "POST",
+            data: {
+                product_id: "{{ object.id }}",
+                quantity: quantity,
+            },
+            dataType: "json",
+            success: function(json){
+                if(json.message){
+                    // カートに追加したらボタンの色と機能を変更する
+                    $('#add_product').attr('class', 'btn btn-danger');
+                    $('#add_product').html('カートに登録済みです');
+                    $('#add_product').prop('disabled', true);
+                    // メッセージ表示
+                    alert(json.message);
+                }
+            },
+            error: function(error){
+                alert(error.responseJSON.message);
+            }
+        });
+    });
+    </script>
+    {% endblock content %}

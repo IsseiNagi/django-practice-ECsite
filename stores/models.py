@@ -1,4 +1,5 @@
 from django.db import models
+from accounts.models import Users
 
 # Create your models here.
 
@@ -52,3 +53,34 @@ class ProductPictures(models.Model):
 
     def __str__(self):
         return self.product.name + ' :' + str(self.order)
+
+
+class Carts(models.Model):
+    user = models.OneToOneField(
+        Users,
+        on_delete=models.CASCADE,
+        primary_key=True,
+    )
+
+    class Meta:
+        db_table = 'carts'
+
+
+class CartItemsManager(models.Manager):
+
+    def save_item(self, product_id, quantity, cart):
+        c = self.model(quantity=quantity, product_id=product_id, cart=cart)
+        c.save()
+
+
+class CartItems(models.Model):
+    quantity = models.PositiveIntegerField()
+    product = models.ForeignKey(Products, on_delete=models.CASCADE)
+    cart = models.ForeignKey(Carts, on_delete=models.CASCADE)
+
+    objects = CartItemsManager()
+
+    class Meta:
+        db_table = 'cart_items'
+        # fkのproductとcartの組み合わせでユニークとする
+        unique_together = [['product', 'cart']]

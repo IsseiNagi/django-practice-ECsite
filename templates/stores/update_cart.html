@@ -1,0 +1,10 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<p>{{ object.product.name }}：注文可能数 {{object.product.stock}}</p>
+<form action="" method="POST">
+    {% csrf_token %}
+        {{ form.as_p }}
+    <input type="submit" value="更新">
+</form>
+{% endblock content %}
