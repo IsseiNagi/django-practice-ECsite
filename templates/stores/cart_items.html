@@ -31,6 +31,7 @@
             </table>
             <hr>
             <h3 class="offset-9">合計：{{ total_price }}円</h3>
+            <a class="offset-9 btn btn-secondary" href="{% url 'stores:input_address' %}">住所を入力する</a>
         {% else %}
         <h2>カートの中に商品が入っていません</h2>
         {% endif %}

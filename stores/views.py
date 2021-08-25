@@ -7,6 +7,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse, Http404
 from django.urls import reverse_lazy
+from django.core.cache import cache
 
 import os
 
@@ -14,8 +15,9 @@ from .models import (
     Products,
     Carts,
     CartItems,
+    Addresses,
 )
-from .forms import CartUpdateForm
+from .forms import CartUpdateForm, AddressInputForm
 # Create your views here.
 
 
@@ -160,3 +162,42 @@ class CartDeleteView(LoginRequiredMixin, DeleteView):
     template_name = os.path.join('stores', 'delete_cart.html')
     model = CartItems
     success_url = reverse_lazy('stores:cart_items')
+
+
+# 住所入力
+class InputAddressView(LoginRequiredMixin, CreateView):
+    template_name = os.path.join('stores', 'input_address.html')
+    form_class = AddressInputForm
+    success_url = reverse_lazy('stores:cart_items')
+
+    # カートに商品が入っていなかったらエラー表示をする 過去の住所一覧から入力するurlに遷移するためのpkも引数に加える
+    def get(self, request, pk=None):
+        cart = get_object_or_404(Carts, user_id=request.user.id)
+        if not cart.cartitems_set.all():
+            raise Http404('商品がカートに入っていません')
+        return super().get(request, pk)
+
+    # get_context_dataを上書きして、templateにformでcache保存した値を渡す
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        address = cache.get(f'address_user_{self.request.user.id}')
+
+        pk = self.kwargs.get('pk')  # getの引数に取ったpkを、ここでkwargsから取り出す
+        # pkがあった場合はifより前を実行、ない場合はaddressは上のcacheを代入したaddress
+        # pkがあった場合の処理はpkを利用してAddressesからデータを取得する
+        address = get_object_or_404(Addresses, user_id=self.request.user.id, pk=pk) if pk else address
+
+        if address:
+            # contextでfieldの初期値を送る
+            context['form'].fields['zip_code'].initial = address.zip_code
+            context['form'].fields['prefecture'].initial = address.prefecture
+            context['form'].fields['address'].initial = address.address
+        # 今まで入力した住所を表示するために、Addressesからユーザーに紐づいた住所情報を取り出す
+        context['addresses'] = Addresses.objects.filter(user=self.request.user).all()
+        return context
+
+    # 上だけだと、address登録時にカスタムしたUserテーブルからuser_idの外部キーが入らないので、エラーが出る
+    # form_valid（formを送信する際にvalidationを行うメソッド）を上書きして、AddressInputFormのuserを登録する
+    def form_valid(self, form):
+        form.user = self.request.user
+        return super().form_valid(form)
