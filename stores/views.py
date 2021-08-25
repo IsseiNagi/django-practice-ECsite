@@ -1,4 +1,4 @@
-from django.shortcuts import render, get_object_or_404
+from django.shortcuts import render, get_object_or_404, redirect
 from django.views.generic.list import ListView
 from django.views.generic.detail import DetailView
 from django.views.generic.base import TemplateView
@@ -8,6 +8,7 @@ from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse, Http404
 from django.urls import reverse_lazy
 from django.core.cache import cache
+from django.db import transaction
 
 import os
 
@@ -16,6 +17,8 @@ from .models import (
     Carts,
     CartItems,
     Addresses,
+    Orders,
+    OrderItems,
 )
 from .forms import CartUpdateForm, AddressInputForm
 # Create your views here.
@@ -168,7 +171,7 @@ class CartDeleteView(LoginRequiredMixin, DeleteView):
 class InputAddressView(LoginRequiredMixin, CreateView):
     template_name = os.path.join('stores', 'input_address.html')
     form_class = AddressInputForm
-    success_url = reverse_lazy('stores:cart_items')
+    success_url = reverse_lazy('stores:confirm_order')
 
     # カートに商品が入っていなかったらエラー表示をする 過去の住所一覧から入力するurlに遷移するためのpkも引数に加える
     def get(self, request, pk=None):
@@ -185,7 +188,8 @@ class InputAddressView(LoginRequiredMixin, CreateView):
         pk = self.kwargs.get('pk')  # getの引数に取ったpkを、ここでkwargsから取り出す
         # pkがあった場合はifより前を実行、ない場合はaddressは上のcacheを代入したaddress
         # pkがあった場合の処理はpkを利用してAddressesからデータを取得する
-        address = get_object_or_404(Addresses, user_id=self.request.user.id, pk=pk) if pk else address
+        address = get_object_or_404(
+            Addresses, user_id=self.request.user.id, pk=pk) if pk else address
 
         if address:
             # contextでfieldの初期値を送る
@@ -193,7 +197,8 @@ class InputAddressView(LoginRequiredMixin, CreateView):
             context['form'].fields['prefecture'].initial = address.prefecture
             context['form'].fields['address'].initial = address.address
         # 今まで入力した住所を表示するために、Addressesからユーザーに紐づいた住所情報を取り出す
-        context['addresses'] = Addresses.objects.filter(user=self.request.user).all()
+        context['addresses'] = Addresses.objects.filter(
+            user=self.request.user).all()
         return context
 
     # 上だけだと、address登録時にカスタムしたUserテーブルからuser_idの外部キーが入らないので、エラーが出る
@@ -201,3 +206,67 @@ class InputAddressView(LoginRequiredMixin, CreateView):
     def form_valid(self, form):
         form.user = self.request.user
         return super().form_valid(form)
+
+
+class ConfirmOrderView(LoginRequiredMixin, TemplateView):
+    template_name = os.path.join('stores', 'confirm_order.html')
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        address = cache.get(f'address_user_{self.request.user.id}')
+        context['address'] = address
+        cart = get_object_or_404(Carts, user_id=self.request.user.id)
+        context['cart'] = cart
+        total_price = 0
+        items = []
+        for item in cart.cartitems_set.all():
+            total_price += item.quantity * item.product.price
+            picture = item.product.productpictures_set.first()
+            picture = picture.picute if picture else None
+            tmp_item = {
+                'quantity': item.quantity,
+                'picture': picture,
+                'name': item.product.name,
+                'price': item.product.price,
+                'id': item.id,
+            }
+            items.append(tmp_item)
+        context['total_price'] = total_price
+        context['items'] = items
+        return context
+
+    # テンプレートからPOSTで注文確定が送られてきた時の処理
+        """transaction.atomicデコレータを付けないとどうなるか。
+        Orders, OrderItems,Products,Cartへの処理が、別々になって実行されてしまう。
+        （注文テーブルにデータを入れる＞商品ストックを減らす＞カートテーブルを削除する）
+        この４つの処理は、塊で全て実行されなくてはいけない、トランザクション（データのやり取り）処理。
+        全てが実行されるか、全てが実行されないかの、いずれかでなくてはいけない。
+        （DBの原子性を満たすという）
+        transaction.atomicデコレータをつけることで、
+        処理の途中でエラーが起きるなどした場合は、ロールバックされ、全て実行されない状態になる。
+        """
+    @transaction.atomic
+    def post(self, request, *args, **kwargs):
+        context = self.get_context_data()
+        address = context.get('address')
+        cart = context.get('cart')
+        total_price = context.get('total_price')
+        if (not address) or (not cart) or (not total_price):
+            raise Http404('注文処理でエラーが発生しました')
+        for item in cart.cartitems_set.all():
+            if item.quantity > item.product.stock:
+                raise Http404('商品在庫が不足しています')
+        # OrdersManagerモデルのinsert_cartを実行して、Ordersにデータを作成する
+        order = Orders.objects.insert_cart(cart, address, total_price)
+        # OrderItemsManagerモデルのinsert_cart_itemsを実行して、OrderItemsにデータを作成する
+        OrderItems.objects.insert_cart_items(cart, order)
+        # ProductsManagerのreduce_stockを実行して、在庫数からcartにある商品数を減らす
+        Products.objects.reduce_stock(cart)
+        # カートの中を削除する Cartsと、それに紐づくCartItemsの該当レコードが削除される
+        cart.delete()
+        return redirect(reverse_lazy('stores:order_success'))
+
+
+class OrderSuccessView(LoginRequiredMixin, TemplateView):
+
+    template_name = os.path.join('stores', 'order_success.html')
