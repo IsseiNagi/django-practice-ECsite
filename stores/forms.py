@@ -46,11 +46,20 @@ class AddressInputForm(forms.ModelForm):
 
         # Addressesで制約したように、同じユーザーで同じ住所を重複登録させないようにする実装 ＊１
         # addressがユニークかどうかバリデーション。ユニークだった場合のみ保存。それ以外はエラー。保存したくないだけなので、pass。 *1
+        # 追記：しかしpassだけだとcacheに保存するだけで、DBに保存しないままになる。cacheを使って、注文完了まで進めるとエラーになるので、
+        # ValidationErrorになった場合は、同じ値を保存するように変更する
         try:
             address.validate_unique()
             address.save()
         except ValidationError:
-            pass
+            # pass
+            address = get_object_or_404(
+                Addresses,
+                user=self.user,
+                prefecture=address.prefecture,
+                zip_code=address.zip_code,
+                address=address.address,
+            )
 
         # addressをキャッシュに一時保存する
         cache.set(f'address_user_{self.user.id}', address)  # 指定した値にaddressを保存する
