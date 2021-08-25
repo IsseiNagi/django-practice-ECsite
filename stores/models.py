@@ -84,3 +84,20 @@ class CartItems(models.Model):
         db_table = 'cart_items'
         # fkのproductとcartの組み合わせでユニークとする
         unique_together = [['product', 'cart']]
+
+
+class Addresses(models.Model):
+    zip_code = models.CharField(max_length=8)
+    prefecture = models.CharField(max_length=10)
+    address = models.CharField(max_length=200)
+    user = models.ForeignKey(Users, on_delete=models.CASCADE)
+
+    class Meta:
+        db_table = 'addresses'
+        # 同じユーザーが、下記の組み合わせが同じデータを、DBに登録できないようにするため、unique_togetherで制約をつける ＊1
+        unique_together = [
+            ['zip_code', 'prefecture', 'address', 'user']
+        ]
+
+    def __str__(self):
+        return f'{self.zip_code} {self.prefecture} {self.address}'
